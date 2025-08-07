@@ -1,66 +1,202 @@
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-require('dotenv').config();
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
+require("dotenv").config();
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const CLIENT_ID = process.env.GITHUB_CLIENT_ID;
-console.log('GitHub Client ID:', CLIENT_ID);
 const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
-console.log('GitHub Client Secret:', CLIENT_SECRET);
-if (!CLIENT_ID || !CLIENT_SECRET) {
-  console.error('GitHub Client ID or Secret is not set in .env file');
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+if (!CLIENT_ID || !CLIENT_SECRET || !GEMINI_API_KEY) {
+  console.error("Missing environment variables");
   process.exit(1);
 }
-app.get('/auth/github', (req, res) => {
-  const redirectUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&scope=repo`;
+
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+// GitHub OAuth
+app.get("/auth/github", (req, res) => {
+  const redirectUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&scope=public_repo`;
   res.redirect(redirectUrl);
 });
 
-app.get('/auth/github/callback', async (req, res) => {
-  const code = req.query.code;
-
+app.get("/auth/github/callback", async (req, res) => {
+  const { code } = req.query;
   try {
     const response = await axios.post(
-      `https://github.com/login/oauth/access_token`,
-      {
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        code,
-      },
-      {
-        headers: {
-          Accept: 'application/json',
-        },
-      }
+      "https://github.com/login/oauth/access_token",
+      { client_id: CLIENT_ID, client_secret: CLIENT_SECRET, code },
+      { headers: { Accept: "application/json" } }
     );
-
     const accessToken = response.data.access_token;
     res.redirect(`http://localhost:5173?token=${accessToken}`);
   } catch (err) {
-    res.status(500).send('Authentication failed');
+    res.status(500).send("Authentication failed");
   }
 });
 
-app.get('/repos', async (req, res) => {
+// Fetch user repositories
+app.get("/repos", async (req, res) => {
   const token = req.headers.authorization;
-
   try {
-    const repos = await axios.get('https://api.github.com/user/repos', {
-      headers: {
-        Authorization: `token ${token}`,
-      },
+    const repos = await axios.get("https://api.github.com/user/repos", {
+      headers: { Authorization: `token ${token}` },
     });
-
     res.json(repos.data);
   } catch (err) {
-    res.status(500).send('Error fetching repos');
+    res.status(500).send("Error fetching repos");
+  }
+});
+
+// Fetch files from a repository
+app.get("/repo-files", async (req, res) => {
+  const { owner, repo } = req.query;
+  const token = req.headers.authorization;
+  try {
+    const files = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/contents`,
+      {
+        headers: { Authorization: `token ${token}` },
+      }
+    );
+    const codeFiles = [];
+    for (const file of files.data) {
+      if (file.type === "file" && /\.(js|ts|tsx|py)$/i.test(file.name)) {
+        const content = await axios.get(file.download_url);
+        codeFiles.push({
+          name: file.name,
+          path: file.path,
+          content: content.data,
+        });
+      }
+    }
+    res.json(codeFiles);
+  } catch (err) {
+    res.status(500).send("Error fetching files");
+  }
+});
+
+// Generate test case summaries
+app.post('/generate-test-cases', async (req, res) => {
+  const { owner, repo, files } = req.body;
+  const token = req.headers.authorization;
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const testCases = [];
+
+    for (const filePath of files) {
+      const file = await axios.get(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
+        headers: { Authorization: `token ${token}` },
+      });
+      const content = Buffer.from(file.data.content, 'base64').toString('utf8');
+      const prompt = `Analyze the following code and suggest test cases (e.g., JUnit for JavaScript/TypeScript, Selenium for Python). Return a JSON array of objects with "title" and "summary" fields:\n\n${content}`;
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      console.log('Gemini Response:', text); // Log the raw response
+      const testCaseSuggestions = JSON.parse(text); // Assuming JSON response
+      testCases.push(...testCaseSuggestions.map((tc) => ({ ...tc, filePath })));
+    }
+    res.json(testCases);
+  } catch (err) {
+    console.error('Error in /generate-test-cases:', err.message, err.stack); // Log detailed error
+    res.status(500).send('Error generating test cases');
+  }
+});
+
+// Generate test case code
+app.post("/generate-test-code", async (req, res) => {
+  const { owner, repo, testCase } = req.body;
+  const token = req.headers.authorization;
+  try {
+    const file = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${testCase.filePath}`,
+      {
+        headers: { Authorization: `token ${token}` },
+      }
+    );
+    const content = Buffer.from(file.data.content, "base64").toString("utf8");
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Generate test case code for the following summary using the appropriate framework (e.g., JUnit for JavaScript/TypeScript, Selenium for Python):\n\nFile: ${testCase.filePath}\nTitle: ${testCase.title}\nSummary: ${testCase.summary}\nCode:\n${content}`;
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    res.json({ code: response.text() });
+  } catch (err) {
+    res.status(500).send("Error generating test case code");
+  }
+});
+
+// Create PR (Bonus)
+app.post("/create-pr", async (req, res) => {
+  const { owner, repo, testCase } = req.body;
+  const token = req.headers.authorization;
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const file = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${testCase.filePath}`,
+      {
+        headers: { Authorization: `token ${token}` },
+      }
+    );
+    const content = Buffer.from(file.data.content, "base64").toString("utf8");
+    const prompt = `Generate test case code for:\n\nFile: ${testCase.filePath}\nTitle: ${testCase.title}\nSummary: ${testCase.summary}\nCode:\n${content}`;
+    const result = await model.generateContent(prompt);
+    const testCode = await result.response.text();
+
+    const branchName = `test-case-${Date.now()}`;
+    const filePath = `test/${testCase.filePath.replace(
+      /\.[^/.]+$/,
+      ""
+    )}_test.js`;
+
+    // Create branch
+    const ref = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/main`,
+      {
+        headers: { Authorization: `token ${token}` },
+      }
+    );
+    const sha = ref.data.object.sha;
+    await axios.post(
+      `https://api.github.com/repos/${owner}/${repo}/git/refs`,
+      { ref: `refs/heads/${branchName}`, sha },
+      { headers: { Authorization: `token ${token}` } }
+    );
+
+    // Create file
+    await axios.put(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
+      {
+        message: `Add test case for ${testCase.title}`,
+        content: Buffer.from(testCode).toString("base64"),
+        branch: branchName,
+      },
+      { headers: { Authorization: `token ${token}` } }
+    );
+
+    // Create PR
+    const pr = await axios.post(
+      `https://api.github.com/repos/${owner}/${repo}/pulls`,
+      {
+        title: `Add test case: ${testCase.title}`,
+        head: branchName,
+        base: "main",
+        body: `Generated test case for ${testCase.filePath}\n\n${testCase.summary}`,
+      },
+      { headers: { Authorization: `token ${token}` } }
+    );
+
+    res.json({ prUrl: pr.data.html_url });
+  } catch (err) {
+    res.status(500).send("Error creating PR");
   }
 });
 
 app.listen(4000, () => {
-  console.log('Backend running on http://localhost:4000');
+  console.log("Backend running on http://localhost:4000");
 });
