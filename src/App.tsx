@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react';
+import RepoList from './components/RepoList';
+import FileList from './components/FileList';
+import TestCaseSummary from './components/TestCaseSummary';
+import './App.css';
 
-// Type for GitHub repo object (you can extend this later)
+// Type for GitHub repo
 interface GitHubRepo {
   id: number;
   full_name: string;
-  [key: string]: any; // fallback for untyped fields
+  name: string;
+  owner: { login: string };
 }
 
 function App() {
   const [token, setToken] = useState<string | null>(null);
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
+  const [testCases, setTestCases] = useState<any[]>([]);
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tokenFromURL = urlParams.get('token');
-
     if (tokenFromURL) {
       setToken(tokenFromURL);
       window.history.replaceState({}, '', '/');
@@ -25,39 +31,36 @@ function App() {
     window.location.href = 'http://localhost:4000/auth/github';
   };
 
-  const fetchRepos = async () => {
-    try {
-      const response = await fetch('http://localhost:4000/repos', {
-        headers: {
-          Authorization: token || '',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch repos');
-      }
-
-      const data: GitHubRepo[] = await response.json();
-      setRepos(data);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
-
   return (
-    <div style={{ padding: '2rem' }}>
+    <div className="app-container">
       <h1>Test Case Generator</h1>
       {!token ? (
-        <button onClick={handleLogin}>Login with GitHub</button>
+        <button className="btn" onClick={handleLogin}>Login with GitHub</button>
       ) : (
-        <>
-          <button onClick={fetchRepos}>Fetch My Repositories</button>
-          <ul>
-            {repos.map((repo) => (
-              <li key={repo.id}>{repo.full_name}</li>
-            ))}
-          </ul>
-        </>
+        <div className="content">
+          <RepoList token={token} onSelectRepo={setSelectedRepo} />
+          {selectedRepo && (
+            <FileList
+              token={token}
+              repo={selectedRepo}
+              onGenerateTestCases={setTestCases}
+            />
+          )}
+          {testCases.length > 0 && (
+            <TestCaseSummary
+              testCases={testCases}
+              token={token}
+              repo={selectedRepo}
+              onGenerateCode={setGeneratedCode}
+            />
+          )}
+          {generatedCode && (
+            <div className="code-output">
+              <h3>Generated Test Case Code</h3>
+              <pre>{generatedCode}</pre>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

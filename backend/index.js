@@ -82,30 +82,64 @@ app.get("/repo-files", async (req, res) => {
 });
 
 // Generate test case summaries
-app.post('/generate-test-cases', async (req, res) => {
+app.post("/generate-test-cases", async (req, res) => {
   const { owner, repo, files } = req.body;
   const token = req.headers.authorization;
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const testCases = [];
 
     for (const filePath of files) {
-      const file = await axios.get(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
-        headers: { Authorization: `token ${token}` },
-      });
-      const content = Buffer.from(file.data.content, 'base64').toString('utf8');
-      const prompt = `Analyze the following code and suggest test cases (e.g., JUnit for JavaScript/TypeScript, Selenium for Python). Return a JSON array of objects with "title" and "summary" fields:\n\n${content}`;
+      console.log(
+        `Fetching file: https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`
+      );
+      const file = await axios.get(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
+        {
+          headers: { Authorization: `token ${token}` },
+        }
+      );
+      const content = Buffer.from(file.data.content, "base64").toString("utf8");
+      console.log(`File content for ${filePath}:`, content);
+
+      const prompt = `Analyze the following code and suggest test cases (e.g., JUnit for JavaScript/TypeScript, Selenium for Python). Return a JSON array of objects with "title" and "summary" fields. Ensure the output is valid JSON without markdown code fences:\n\n${content}`;
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      const text = response.text();
-      console.log('Gemini Response:', text); // Log the raw response
-      const testCaseSuggestions = JSON.parse(text); // Assuming JSON response
+      let text = response.text();
+
+      console.log("Raw Gemini Response:", text);
+
+      // Remove markdown code fences and any surrounding whitespace
+      text = text.replace(/```json\n|\n```|```/g, "").trim();
+
+      console.log("Cleaned Gemini Response:", text);
+
+      let testCaseSuggestions;
+      try {
+        testCaseSuggestions = JSON.parse(text);
+        if (!Array.isArray(testCaseSuggestions)) {
+          throw new Error("Gemini response is not an array");
+        }
+      } catch (parseErr) {
+        console.error("JSON Parse Error:", parseErr.message);
+        console.error("Failed to parse:", text);
+        // Fallback: Return a default test case
+        testCaseSuggestions = [
+          {
+            title: "Default Test Case",
+            summary:
+              "Unable to parse Gemini response. Please check the API output.",
+            filePath,
+          },
+        ];
+      }
       testCases.push(...testCaseSuggestions.map((tc) => ({ ...tc, filePath })));
     }
+    console.log("Returning test cases:", testCases);
     res.json(testCases);
   } catch (err) {
-    console.error('Error in /generate-test-cases:', err.message, err.stack); // Log detailed error
-    res.status(500).send('Error generating test cases');
+    console.error("Error in /generate-test-cases:", err.message, err.stack);
+    res.status(500).send("Error generating test cases");
   }
 });
 
