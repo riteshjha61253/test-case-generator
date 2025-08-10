@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { GitBranch, Loader2, WarehouseIcon as Repository } from 'lucide-react';
 import { type GitHubRepo } from '../types';
 
 interface RepoListProps {
@@ -26,22 +27,44 @@ const RepoList: React.FC<RepoListProps> = ({ token, onSelectRepo }) => {
         setLoading(false);
       }
     };
+
     fetchRepos();
   }, [token]);
 
   return (
-    <div className="repo-list">
-      <h2>Your Repositories</h2>
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="flex items-center gap-3 mb-6">
+        <Repository className="w-6 h-6 text-green-600" />
+        <h2 className="text-xl font-semibold text-gray-900">Your Repositories</h2>
+      </div>
+
       {loading ? (
-        <p>Loading...</p>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+          <span className="ml-3 text-gray-600">Loading repositories...</span>
+        </div>
       ) : (
-        <ul>
+        <div className="space-y-2 max-h-96 overflow-y-auto">
           {repos.map((repo) => (
-            <li key={repo.id} onClick={() => onSelectRepo(repo)} className="repo-item">
-              {repo.full_name}
-            </li>
+            <button
+              key={repo.id}
+              onClick={() => onSelectRepo(repo)}
+              className="w-full text-left p-4 rounded-lg border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-all duration-200 group focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            >
+              <div className="flex items-center gap-3">
+                <GitBranch className="w-5 h-5 text-gray-400 group-hover:text-green-600 transition-colors" />
+                <div>
+                  <h3 className="font-medium text-gray-900 group-hover:text-green-900 transition-colors">
+                    {repo.full_name}
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Click to select this repository
+                  </p>
+                </div>
+              </div>
+            </button>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

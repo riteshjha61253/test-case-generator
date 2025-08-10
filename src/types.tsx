@@ -4,3 +4,9 @@ export interface GitHubRepo {
   name: string;
   owner: { login: string };
 }
+
+export interface TestCase {
+  title: string;
+  summary: string;
+  filePath: string;
+}
