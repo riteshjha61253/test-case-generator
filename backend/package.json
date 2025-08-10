@@ -6,7 +6,7 @@
  "scripts": {
   "start": "node backend/index.js",
   "build": "npm run build:frontend && npm run move:build",
-  "build:frontend": "react-scripts build", 
+  "build:frontend": "vite build", 
   "move:build": "rm -rf backend/public/* && cp -r build/* backend/public/"
 },
   "keywords": [],
