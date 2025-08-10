@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-  "start": "node server.js",
-  "build": "cd .. && npm install && npm run build && rm -rf backend/public/* && cp -r dist/* backend/public/"
+ "scripts": {
+  "start": "node backend/index.js",
+  "build": "npm run build:frontend && npm run move:build",
+  "build:frontend": "react-scripts build", 
+  "move:build": "rm -rf backend/public/* && cp -r build/* backend/public/"
 },
   "keywords": [],
   "author": "",
