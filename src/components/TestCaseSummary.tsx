@@ -30,6 +30,7 @@ const TestCaseSummary: React.FC<TestCaseSummaryProps> = ({
   useEffect(() => {
     console.log('Loaded test cases:', testCases);
   }, [testCases]);
+  testCode;
 
   const selectedTestCase = testCases.find((tc) => tc.title === selectedTitle);
 
