@@ -1,12 +1,16 @@
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
+const path = require("path"); // ✅ Added
 require("dotenv").config();
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ✅ Serve frontend static files
+app.use(express.static(path.join(__dirname, "public")));
 
 const CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
@@ -34,7 +38,7 @@ app.get("/auth/github/callback", async (req, res) => {
       { headers: { Accept: "application/json" } }
     );
     const accessToken = response.data.access_token;
-    res.redirect(`http://localhost:5173?token=${accessToken}`);
+    res.redirect(`/?token=${accessToken}`); // ✅ works after deploy
   } catch (err) {
     res.status(500).send("Authentication failed");
   }
@@ -54,9 +58,7 @@ app.post("/generate-test-code", async (req, res) => {
       }
     );
 
-    const content = Buffer.from(fileRes.data.content, "base64").toString(
-      "utf8"
-    );
+    const content = Buffer.from(fileRes.data.content, "base64").toString("utf8");
 
     const prompt = `Generate test code for the following test case:\n\nTitle: ${testCase.title}\nSummary: ${testCase.summary}\n\nFile: ${testCase.filePath}\n\nCode:\n${content}`;
 
@@ -114,7 +116,6 @@ app.get("/repo-files", async (req, res) => {
   }
 });
 
-// Generate test case code
 app.post("/generate-test-cases", async (req, res) => {
   const { owner, repo, files } = req.body;
   const token = req.headers.authorization;
@@ -181,7 +182,6 @@ app.post("/generate-test-cases", async (req, res) => {
   }
 });
 
-// Create PR (Bonus)
 app.post("/create-pr", async (req, res) => {
   const { owner, repo, testCase } = req.body;
   const token = req.headers.authorization;
@@ -247,6 +247,12 @@ app.post("/create-pr", async (req, res) => {
   }
 });
 
-app.listen(4000, () => {
-  console.log("Backend running on http://localhost:4000");
+// ✅ Catch-all for React Router
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log(`Backend running on port ${PORT}`);
 });

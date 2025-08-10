@@ -4,8 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "start": "node server.js",
+  "build": "cd .. && npm install && npm run build && rm -rf backend/public/* && cp -r dist/* backend/public/"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
